@@ -17,3 +17,4 @@ local.settings.json
 # Temporary files
 *.log
 backend/function_app_local_backup.py
+backend/function_app_local_backup.py
