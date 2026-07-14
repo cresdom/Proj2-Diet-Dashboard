@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Azure Functions secrets
+local.settings.json
+
+# Environment files and deployment credentials
+.env
+*.env
+
+# Editors and OS
+.vscode/
+.DS_Store
+
+# Temporary files
+*.log
+backend/function_app_local_backup.py

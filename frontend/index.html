@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diet Analysis Dashboard</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f4f7fb;
+      color: #1f2937;
+    }
+
+    header {
+      background: #2563eb;
+      color: white;
+      padding: 24px;
+      text-align: center;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    button,
+    select {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: white;
+      font-size: 15px;
+    }
+
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    .metadata-grid,
+    .summary-grid,
+    .charts-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .metadata-grid,
+    .summary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-bottom: 22px;
+    }
+
+    .charts-grid {
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .card h2,
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .metric {
+      font-size: 28px;
+      font-weight: bold;
+      color: #2563eb;
+    }
+
+    .status {
+      margin-bottom: 18px;
+      font-weight: bold;
+    }
+
+    .error {
+      color: #b91c1c;
+    }
+
+    .success {
+      color: #15803d;
+    }
+
+    canvas {
+      max-height: 360px;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Diet Analysis Dashboard</h1>
+    <p>Azure Functions and Azure Blob Storage</p>
+  </header>
+
+  <main>
+    <div class="controls">
+      <label for="dietFilter"><strong>Diet filter:</strong></label>
+
+      <select id="dietFilter">
+        <option value="all">All diets</option>
+      </select>
+
+      <button id="refreshButton">Refresh Data</button>
+    </div>
+
+    <div id="status" class="status">Loading dashboard data...</div>
+
+    <section class="metadata-grid">
+      <div class="card">
+        <h3>Records Processed</h3>
+        <div id="recordsProcessed" class="metric">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Diet Types</h3>
+        <div id="dietTypeCount" class="metric">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Cuisine Types</h3>
+        <div id="cuisineTypeCount" class="metric">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Execution Time</h3>
+        <div id="executionTime" class="metric">-</div>
+      </div>
+    </section>
+
+    <section class="summary-grid">
+      <div class="card">
+        <h3>Average Protein</h3>
+        <div id="averageProtein" class="metric">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Average Carbs</h3>
+        <div id="averageCarbs" class="metric">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Average Fat</h3>
+        <div id="averageFat" class="metric">-</div>
+      </div>
+    </section>
+
+    <section class="charts-grid">
+      <div class="card">
+        <h2>Average Nutrition by Diet</h2>
+        <canvas id="nutritionChart"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>Diet Distribution</h2>
+        <canvas id="dietChart"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>Top Cuisine Distribution</h2>
+        <canvas id="cuisineChart"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API_URL =
+      "https://proj2dietfunc.azurewebsites.net/api/diet_dashboard";
+
+    let dashboardData = null;
+    let nutritionChart = null;
+    let dietChart = null;
+    let cuisineChart = null;
+
+    const statusElement = document.getElementById("status");
+    const dietFilter = document.getElementById("dietFilter");
+    const refreshButton = document.getElementById("refreshButton");
+
+    function destroyCharts() {
+      if (nutritionChart) nutritionChart.destroy();
+      if (dietChart) dietChart.destroy();
+      if (cuisineChart) cuisineChart.destroy();
+    }
+
+    function updateMetadata(data) {
+      document.getElementById("recordsProcessed").textContent =
+        data.metadata.records_processed.toLocaleString();
+
+      document.getElementById("dietTypeCount").textContent =
+        data.metadata.diet_type_count;
+
+      document.getElementById("cuisineTypeCount").textContent =
+        data.metadata.cuisine_type_count;
+
+      document.getElementById("executionTime").textContent =
+        `${data.metadata.execution_time_ms} ms`;
+
+      document.getElementById("averageProtein").textContent =
+        `${data.overall_averages.protein} g`;
+
+      document.getElementById("averageCarbs").textContent =
+        `${data.overall_averages.carbs} g`;
+
+      document.getElementById("averageFat").textContent =
+        `${data.overall_averages.fat} g`;
+    }
+
+    function populateDietFilter(data) {
+      dietFilter.innerHTML = '<option value="all">All diets</option>';
+
+      data.averages_by_diet.forEach(item => {
+        const option = document.createElement("option");
+        option.value = item.Diet_type;
+        option.textContent = item.Diet_type;
+        dietFilter.appendChild(option);
+      });
+    }
+
+    function renderCharts(data, selectedDiet = "all") {
+      destroyCharts();
+
+      let nutritionData = data.averages_by_diet;
+      let dietDistribution = data.diet_distribution;
+
+      if (selectedDiet !== "all") {
+        nutritionData = nutritionData.filter(
+          item => item.Diet_type === selectedDiet
+        );
+
+        dietDistribution = dietDistribution.filter(
+          item => item.diet_type === selectedDiet
+        );
+      }
+
+      nutritionChart = new Chart(
+        document.getElementById("nutritionChart"),
+        {
+          type: "bar",
+          data: {
+            labels: nutritionData.map(item => item.Diet_type),
+            datasets: [
+              {
+                label: "Protein (g)",
+                data: nutritionData.map(item => item.protein)
+              },
+              {
+                label: "Carbs (g)",
+                data: nutritionData.map(item => item.carbs)
+              },
+              {
+                label: "Fat (g)",
+                data: nutritionData.map(item => item.fat)
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false
+          }
+        }
+      );
+
+      dietChart = new Chart(
+        document.getElementById("dietChart"),
+        {
+          type: "pie",
+          data: {
+            labels: dietDistribution.map(item => item.diet_type),
+            datasets: [
+              {
+                data: dietDistribution.map(item => item.count)
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false
+          }
+        }
+      );
+
+      cuisineChart = new Chart(
+        document.getElementById("cuisineChart"),
+        {
+          type: "line",
+          data: {
+            labels: data.cuisine_distribution.map(
+              item => item.cuisine_type
+            ),
+            datasets: [
+              {
+                label: "Recipe Count",
+                data: data.cuisine_distribution.map(
+                  item => item.count
+                ),
+                tension: 0.25
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false
+          }
+        }
+      );
+    }
+
+    async function loadDashboard() {
+      statusElement.textContent = "Loading dashboard data...";
+      statusElement.className = "status";
+
+      try {
+        const response = await fetch(API_URL);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+
+        dashboardData = await response.json();
+
+        if (dashboardData.status !== "success") {
+          throw new Error(
+            dashboardData.message || "The API returned an error."
+          );
+        }
+
+        updateMetadata(dashboardData);
+        populateDietFilter(dashboardData);
+        renderCharts(dashboardData);
+
+        statusElement.textContent =
+          `Data loaded successfully from ${dashboardData.data_source}`;
+
+        statusElement.className = "status success";
+      } catch (error) {
+        console.error(error);
+
+        statusElement.textContent =
+          `Dashboard failed to load: ${error.message}`;
+
+        statusElement.className = "status error";
+      }
+    }
+
+    dietFilter.addEventListener("change", () => {
+      if (dashboardData) {
+        renderCharts(dashboardData, dietFilter.value);
+      }
+    });
+
+    refreshButton.addEventListener("click", loadDashboard);
+
+    loadDashboard();
+  </script>
+</body>
+</html>
